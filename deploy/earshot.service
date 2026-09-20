@@ -1,0 +1,53 @@
+[Unit]
+Description=earshot — bird detection for Plate 197
+Documentation=https://github.com/kevinl95/Plate197
+# The clock matters: a detection stamped 1970 poisons the "first ever"
+# flags forever. The service also checks this itself before writing.
+After=network-online.target time-sync.target sound.target
+Wants=network-online.target time-sync.target
+# Back off if it is failing repeatedly rather than hammering the card.
+# These are [Unit] keys, not [Service] -- systemd silently ignores them
+# in the wrong section, which is exactly what was happening here.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=notify
+NotifyAccess=main
+# The loop pings this while it is going round. A PortAudio call that
+# wedges — the classic arecord/ffmpeg failure, alive but producing
+# nothing — stops the pings and systemd restarts us.
+WatchdogSec=90
+
+User=earshot
+Group=earshot
+SupplementaryGroups=audio video
+# /var/lib/earshot: database, models, species-filter cache.
+StateDirectory=earshot
+RuntimeDirectory=earshot
+WorkingDirectory=/opt/earshot
+
+Environment=PYTHONUNBUFFERED=1
+Environment=EARSHOT_DATA_DIR=/var/lib/earshot
+ExecStart=/opt/earshot/venv/bin/python -m earshot run
+
+Restart=always
+RestartSec=5
+
+# journald only; nothing of ours belongs on the SD card.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=earshot
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=no
+MemoryMax=400M
+
+[Install]
+WantedBy=multi-user.target

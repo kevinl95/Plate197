@@ -1,0 +1,46 @@
+# Plate 197 — settings you can change without a keyboard.
+#
+# This file lives on the card's boot partition, which any laptop will
+# mount. Pull the card, edit a line, put it back, power on. Anything set
+# here overrides what the image was built with; anything left commented
+# out keeps the built-in value.
+#
+# Everything is optional, and a typo here is skipped rather than fatal.
+
+# How sure the classifier has to be before a bird is written down.
+# 0.65 is deliberately strict. A call played from a phone speaker across
+# a room often lands well under it, so lower this while testing:
+# min_conf = 0.25
+
+# Part of the microphone's name, matched case-insensitively.
+# device_match = "USB"
+
+# Where the feeder is. This decides which species count as plausible,
+# which is the single biggest accuracy lever in the whole system.
+# latitude = 00.0000
+# longitude = -000.0000
+
+# The place name printed in the page's footer.
+# location = "Your Town"
+
+# ---------------------------------------------------------------------
+# Wi-Fi, if Raspberry Pi Imager's own settings did not take.
+#
+# Uncomment and fill these in, put the card back, and the next boot
+# hands them to NetworkManager. Changing them later is the same loop:
+# edit, reboot. An unchanged file costs nothing -- it is only reapplied
+# when something here actually differs.
+#
+# country is not optional on a Pi: the wireless radio stays blocked
+# until a regulatory domain is set, which is a very quiet way for wlan0
+# to simply never come up. Use your two-letter country code.
+#
+# Note that this password sits in plaintext on a partition any computer
+# can read -- as it does with every other headless Pi Wi-Fi method,
+# Imager's included.
+# ---------------------------------------------------------------------
+# [wifi]
+# ssid = "Your Network"
+# password = "your password"
+# country = "US"
+# hidden = false

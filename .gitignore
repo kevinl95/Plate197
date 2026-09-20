@@ -216,3 +216,67 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+BRIEF.md
+# CustomPiOS build artifacts
+#
+# A build unpacks a ~500MB base image and an apt cache into src/workspace
+# and writes absolute host paths into the scripts it generates, so none of
+# this belongs anywhere near a commit.
+distro/CustomPiOS/
+distro/build.log
+
+# the build's scratch space: mounted image, chroot scripts, apt cache
+distro/src/workspace/
+distro/workspace*/
+distro/src/build.log
+distro/src/aptcache/
+
+# generated when the distro is wired to a CustomPiOS checkout
+distro/src/build_dist
+distro/src/custompios_path
+
+# local build overrides — where a real latitude and longitude would go
+distro/src/config.local
+distro/src/variants/*/config.local
+
+# base images live here but are never committed
+distro/src/image*/*
+!distro/src/image*/.gitkeep
+
+# the working tree staged into the image at build time
+distro/src/modules/plate197/filesystem/opt/
+
+# anything the build leaves lying around
+distro/**/*.img
+distro/**/*.img.xz
+distro/**/*.zip
+distro/**/*.7z
+distro/**/*.qcow2
+
+# earshot runtime state (models are ~82MB, downloaded not committed)
+*.tflite
+detections.db*
+species-filter.json
+
+# Local configuration. This is where the real coordinates go; the
+# committed defaults are a placeholder.
+earshot.toml
+*.local.toml
+
+# Hand-cut Audubon plates. These are real image files — tens of KB to a
+# few MB each, one per species — not source, and CC BY-NC-SA-derived
+# artwork some people may not want in git history forever. They still
+# reach the frame: install.sh and distro/build.sh copy plates/ from the
+# working directory with a plain cp, so a PNG dropped in is bundled into
+# an install or an image whether or not git ever sees it.
+#
+# The directory and its README stay tracked; only the pictures are
+# excluded, so `git status` in plates/ never shows the art as a stray file.
+plates/*.png
+plates/*.webp
+plates/*.jpg
+plates/*.jpeg
+plates/*.gif
+plates/*.svg
+!plates/README.md

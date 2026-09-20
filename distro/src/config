@@ -1,0 +1,48 @@
+# Plate197 — CustomPiOS distribution config.
+#
+# Built on Raspberry Pi OS Lite 64-bit, Bookworm specifically: its Python
+# is 3.11, which is the newest version with an arm64 tflite-runtime wheel
+# (2.3MB, no TensorFlow). Trixie's 3.13 falls back to ai-edge-litert at
+# 14MB, which also works but is more to carry on a 1GB board.
+export DIST_NAME=Plate197
+export DIST_VERSION=0.1.0
+export MODULES="base(plate197)"
+
+export BASE_BOARD=raspberrypiarm64
+export BASE_DISTRO=raspios64
+export BASE_OS=debian_bookworm
+export BASE_USER=pi
+
+# Chromium, X, a venv with numpy, and ~82MB of BirdNET model.
+export BASE_IMAGE_ENLARGEROOT=1800
+export BASE_IMAGE_RESIZEROOT=300
+
+export RPI_IMAGER_NAME="${DIST_NAME} ${DIST_VERSION}"
+export RPI_IMAGER_DESCRIPTION="A bird frame: listens at a window, names what it hears, shows it on a 7\" panel."
+
+# ---------------------------------------------------------------------
+# DNS for the chroot.
+#
+# Before it runs apt, CustomPiOS writes 8.8.8.8, 8.8.4.4 and 1.1.1.1 into
+# the image's /etc/resolv.conf. On a machine behind a VPN or a resolver
+# that refuses to forward elsewhere, those are unreachable, and every apt
+# fetch dies with "Temporary failure resolving deb.debian.org" — which
+# reads like a broken module and is nothing of the sort.
+#
+# So hand it whatever actually resolves on this host. systemd-resolved's
+# own file lists the real upstreams; /etc/resolv.conf on such a system
+# only lists its 127.0.0.53 stub, which means nothing inside a chroot.
+# Set BASE_USE_ALT_DNS yourself to override any of this.
+# ---------------------------------------------------------------------
+if [ -z "${BASE_USE_ALT_DNS:-}" ]; then
+    for _resolv in /run/systemd/resolve/resolv.conf /etc/resolv.conf; do
+        [ -r "${_resolv}" ] || continue
+        _servers=$(awk '/^nameserver/ && $2 !~ /^127\./ {printf "%s ", $2}' "${_resolv}")
+        if [ -n "${_servers}" ]; then
+            export BASE_USE_ALT_DNS="${_servers% }"
+            echo "Plate197: chroot will resolve via ${BASE_USE_ALT_DNS}"
+            break
+        fi
+    done
+    unset _resolv _servers
+fi

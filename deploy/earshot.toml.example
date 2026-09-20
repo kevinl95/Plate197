@@ -1,0 +1,39 @@
+# /etc/earshot.toml — every key is optional; these are the defaults.
+# Environment overrides exist too (EARSHOT_MIN_CONF=0.7 and so on), which
+# is the tidier way to change one value from a systemd drop-in.
+
+# ---- the microphone ----------------------------------------------------
+# A substring of the device name, case-insensitive. Run
+# `earshot devices` on the Pi to see the names. Never an index.
+device_match = "USB"
+
+# ---- what counts as heard ---------------------------------------------
+min_conf = 0.65
+
+# Put the feeder's real coordinates here. This file is /etc/earshot.toml
+# on the Pi and is not in the repository, which is the point: the values
+# committed as defaults are a placeholder pointing at Denver.
+#
+# It is not cosmetic. The range model uses this plus the week of the year
+# to cut 6522 species down to the ~140 that could actually be here, which
+# is the single biggest accuracy win available. A degree or two off
+# changes almost nothing; a different continent changes everything.
+latitude = 39.7392
+longitude = -104.9903
+
+# What the page prints in its footer.
+location = "Colorado"
+
+# fp32 is the reference model (52MB). int8 is 41MB and quicker on a Pi 3
+# at some cost in accuracy; fp16 is 26MB. Change this and run
+# `earshot models` again.
+model_precision = "fp32"
+tflite_threads = 2
+
+# ---- where things live -------------------------------------------------
+data_dir = "/var/lib/earshot"
+port = 8197
+
+# ---- noise ------------------------------------------------------------
+# journald on an SD card. Raise to INFO only while debugging something.
+log_level = "WARNING"

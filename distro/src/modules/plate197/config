@@ -1,0 +1,48 @@
+# Everything the image bakes in, overridable from the environment at build
+# time: PLATE197_LATITUDE=... ./build.sh
+#
+# The location is not cosmetic. BirdNET's range model uses latitude,
+# longitude and the week of the year to cut 6522 species down to the ~140
+# that could plausibly be at this feeder, which is the single biggest
+# accuracy win available. An image built with the wrong coordinates works,
+# but it works worse.
+# These defaults are a placeholder — see distro/src/config.local, which
+# is gitignored and is where real coordinates belong.
+[ -n "$PLATE197_LATITUDE" ]        || PLATE197_LATITUDE=39.7392
+[ -n "$PLATE197_LONGITUDE" ]       || PLATE197_LONGITUDE=-104.9903
+[ -n "$PLATE197_LOCATION" ]        || PLATE197_LOCATION="Colorado"
+[ -n "$PLATE197_TIMEZONE" ]        || PLATE197_TIMEZONE=America/Denver
+
+[ -n "$PLATE197_DEVICE_MATCH" ]    || PLATE197_DEVICE_MATCH=USB
+[ -n "$PLATE197_MIN_CONF" ]        || PLATE197_MIN_CONF=0.65
+[ -n "$PLATE197_PORT" ]            || PLATE197_PORT=8197
+[ -n "$PLATE197_MODEL_PRECISION" ] || PLATE197_MODEL_PRECISION=fp32
+
+# Bake the BirdNET files into the image so first boot works with no
+# network at all. The models are CC BY-NC-SA 4.0: fine for a frame on a
+# table, and something to read properly before publishing images built
+# with them. Set to no and the service downloads them on first run
+# instead, retrying until the network appears.
+[ -n "$PLATE197_BAKE_MODELS" ]     || PLATE197_BAKE_MODELS=yes
+
+# Wi-Fi baked in at build time, so the card works on first boot without
+# anyone editing anything. Leave SSID empty to ship a card that asks for
+# it later instead (the same file on the boot partition, editable from
+# any laptop).
+#
+# These belong in distro/src/config.local, which is gitignored -- a
+# password does not go in a public repository, and note that it travels
+# inside any .img you share.
+[ -n "$PLATE197_WIFI_SSID" ]       || PLATE197_WIFI_SSID=""
+[ -n "$PLATE197_WIFI_PASSWORD" ]   || PLATE197_WIFI_PASSWORD=""
+# Not optional when an SSID is set: a Pi keeps its radio blocked until a
+# regulatory domain exists.
+[ -n "$PLATE197_WIFI_COUNTRY" ]    || PLATE197_WIFI_COUNTRY="US"
+[ -n "$PLATE197_WIFI_HIDDEN" ]     || PLATE197_WIFI_HIDDEN="no"
+
+# The panel. Off for a headless build.
+[ -n "$PLATE197_KIOSK" ]           || PLATE197_KIOSK=yes
+
+# Where the staged working tree lands inside the chroot; build.sh puts it
+# there.
+[ -n "$PLATE197_SOURCE" ]          || PLATE197_SOURCE=/filesystem/opt/earshot

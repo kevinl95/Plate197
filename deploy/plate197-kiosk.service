@@ -1,0 +1,59 @@
+[Unit]
+Description=Plate 197 display (Chromium kiosk on the 7" panel)
+Documentation=https://github.com/kevinl95/Plate197
+# earshot is Type=notify, so After= here means the page never loads
+# before /recent can answer it.
+After=earshot.service
+Wants=earshot.service
+# No ConditionPathExists=/dev/tty1 here on purpose: a failed condition
+# skips the unit *silently*, which is the worst possible behaviour on a
+# frame with no keyboard attached. Let it fail loudly into the journal
+# instead, where plate197-report.sh will find it.
+
+# tty1 has a console login (agetty) on it by default on every Raspberry
+# Pi OS image, and it starts faster than this unit does. Without this,
+# it wins the race for the tty and the panel shows a login prompt
+# instead of the kiosk. install.sh/the image build also disable it
+# outright so it's never in the race at all; Conflicts= is the backstop
+# for whatever re-enables it later (a `raspi-config` run, a manual
+# `systemctl enable`, ...).
+Conflicts=getty@tty1.service
+After=getty@tty1.service
+
+# Raspberry Pi OS's first-boot account wizard also wants tty1, and this
+# unit takes that tty with TTYVHangup/TTYReset. Nothing ordered the two,
+# so they could race for it -- and a wizard that cannot get its terminal
+# fails, gets restarted, and fights for it again. Wait for it to finish.
+# Ordering against a unit that isn't installed is simply ignored, so
+# this costs nothing on an image that has no wizard.
+After=userconfig.service
+
+[Service]
+Type=simple
+User=kiosk
+Group=kiosk
+SupplementaryGroups=video render input tty
+
+# X on a bare console needs a real tty and a login session.
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=plate197-kiosk
+
+# Chromium's profile and cache live here, on tmpfs. Nothing a browser
+# writes belongs on an SD card that has to survive years of this.
+RuntimeDirectory=plate197-kiosk
+RuntimeDirectoryMode=0700
+Environment=KIOSK_PROFILE=/run/plate197-kiosk
+Environment=KIOSK_URL=http://127.0.0.1:8197
+
+ExecStart=/opt/earshot/deploy/kiosk.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

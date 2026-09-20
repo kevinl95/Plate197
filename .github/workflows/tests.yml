@@ -1,0 +1,141 @@
+name: tests
+
+# The cheap gate. Runs in about a minute, on everything, so that the
+# 40-minute image build is never the first thing to tell you the service
+# is broken.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run pointless.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is what the image actually ships: Raspberry Pi OS Bookworm,
+        # pinned in distro/build.sh because it is the last Python with an
+        # arm64 tflite-runtime wheel. 3.12 is the ai-edge-litert path, and
+        # is here so that "works on the Pi" and "works on anything newer"
+        # stay true at the same time.
+        python: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: PortAudio
+        # Defensive, not currently required: no test imports earshot.audio
+        # or earshot.service today, and those are the only modules that
+        # touch sounddevice. But sounddevice is a ctypes wrapper that
+        # raises OSError at *import* when libportaudio is missing, so the
+        # first test that does reach for it would fail here for a reason
+        # that has nothing to do with the change under test. Two seconds
+        # of apt to take that whole class of confusion off the table.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libportaudio2
+
+      - name: Install
+        # No interpreter extra: the model tests skip themselves when
+        # BirdNET's weights are absent, and CI has no business pulling
+        # 120MB of CC BY-NC-SA files to run them.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev,plates]'
+
+      - name: Lint
+        # ruff comes from the dev extra, bounded there so a new release
+        # cannot turn this red on a day nobody touched the code.
+        run: ruff check earshot tests
+
+      - name: Tests
+        run: pytest -q
+
+      - name: The page still parses
+        # index-7inch.html is hand-maintained and the brief says not to
+        # redesign it, so nothing here touches it -- but a syntax error in
+        # its <script> is a black screen on the frame and is invisible to
+        # pytest. Cheap to catch here -- node is preinstalled on the runner.
+        run: |
+          python - <<'PY' > /tmp/page.js
+          import re, pathlib
+          html = pathlib.Path("index-7inch.html").read_text()
+          blocks = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.S)
+          assert blocks, "no inline <script> found in index-7inch.html"
+          print("\n".join(blocks))
+          PY
+          node --check /tmp/page.js
+
+  # The frame's worst failures were never Python. A [Unit] key placed in
+  # [Service] is silently ignored; a second --disable-features= silently
+  # overrides the first; a script that parses fine still breaks a build
+  # 20 minutes in. All of it is cheap to check and none of it needs a Pi.
+  units:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        # Includes the CustomPiOS fragments, which have no shebang and are
+        # sourced rather than run -- a syntax error in one of those fails
+        # the image build, not this repo's tests.
+        run: |
+          for f in deploy/*.sh distro/build.sh \
+                   distro/src/modules/plate197/start_chroot_script \
+                   distro/src/config distro/src/modules/plate197/config; do
+            # Deliberately not `bash -n "$f" && echo ok`: under set -e a
+            # failing command in a && list is exempt, so a broken script
+            # anywhere but the last iteration would leave the loop -- and
+            # the step -- exiting 0. Verified: it does.
+            bash -n "$f"
+            echo "ok  $f"
+          done
+
+      - name: Shellcheck
+        # shellcheck is preinstalled on the runner. Warning level, not
+        # style level: it is here to catch things that change behaviour,
+        # such as export VAR="$(cmd)" swallowing cmd's exit status.
+        run: |
+          shellcheck --severity=warning \
+            deploy/*.sh distro/build.sh \
+            distro/src/modules/plate197/start_chroot_script
+
+      - name: systemd units
+        # systemd-analyze reports a missing ExecStart binary, which is
+        # always true here -- /opt/earshot only exists on the Pi. That one
+        # line is filtered out; anything else is a real finding, including
+        # the "systemd silently ignores them" warning that is the only
+        # sign of a key sitting in the wrong section.
+        run: |
+          rc=0
+          for u in deploy/*.service deploy/*.timer; do
+            [ -e "$u" ] || continue
+            out=$(systemd-analyze verify "$u" 2>&1 \
+                  | grep -vE "is not executable: No such file or directory") || true
+            if [ -n "$out" ]; then
+              echo "::error file=$u::$out"
+              printf '%s\n' "$out"
+              rc=1
+            else
+              echo "ok  $u"
+            fi
+          done
+          exit $rc

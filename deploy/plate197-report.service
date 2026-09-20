@@ -1,0 +1,18 @@
+[Unit]
+Description=Plate 197 boot report (written to the boot partition)
+Documentation=https://github.com/kevinl95/Plate197
+# Deliberately not ordered before anything: this only ever observes.
+After=plate197-kiosk.service earshot.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/earshot/deploy/plate197-report.sh
+# The script sleeps first so it catches a settled system rather than a
+# half-started one; this is just a ceiling on that.
+TimeoutStartSec=300
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=plate197-report
+
+[Install]
+WantedBy=multi-user.target

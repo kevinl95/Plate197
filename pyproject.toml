@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "earshot"
+version = "0.1.0"
+description = "Bird detection for Plate 197 — listen, identify, remember"
+# tomllib (earshot/config.py) is 3.11+, which is also what Raspberry
+# Pi OS Bookworm ships -- the version distro/build.sh pins to.
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.22",
+    "sounddevice>=0.4.6",
+    "flask>=2.2",
+    "waitress>=2.1",
+]
+
+[project.optional-dependencies]
+# The interpreter. tflite-runtime has arm64 wheels up to cp311, which is
+# Raspberry Pi OS Bookworm; ai-edge-litert is the same interpreter under
+# its newer name and has wheels for 3.12+. Install exactly one.
+# tflite-runtime's C extension is built against NumPy 1.x and will not
+# import under NumPy 2 at all, so the pin travels with it.
+tflite = ["tflite-runtime>=2.14; python_version < '3.12'", "numpy<2"]
+litert = ["ai-edge-litert>=2.0"]
+# backlight.py's own dependencies, kept here so one install covers the frame.
+panel = ["rpi-backlight>=2.4", "astral>=3.2"]
+# `earshot plates --fix` only. The running service never imports Pillow.
+plates = ["pillow>=10"]
+# Upper bound on ruff so a new release cannot turn CI red on a day
+# nobody touched the code.
+dev = ["pytest>=7", "ruff>=0.15,<0.16"]
+
+[project.scripts]
+earshot = "earshot.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["earshot*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

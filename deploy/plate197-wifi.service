@@ -1,0 +1,23 @@
+[Unit]
+Description=Plate 197 Wi-Fi from the boot partition
+Documentation=https://github.com/kevinl95/Plate197
+# NetworkManager has to exist before there is anything to tell.
+After=NetworkManager.service
+Wants=NetworkManager.service
+# Ordered before the things that want a network, without requiring it:
+# the frame works perfectly well offline, it just cannot set its clock.
+Before=earshot.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/earshot/venv/bin/python /opt/earshot/deploy/plate197-wifi.py
+# A wifi misconfiguration must never stop the frame from coming up.
+SuccessExitStatus=0 1
+TimeoutStartSec=120
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=plate197-wifi
+
+[Install]
+WantedBy=multi-user.target

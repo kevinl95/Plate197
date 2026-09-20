@@ -1,0 +1,260 @@
+#!/usr/bin/env bash
+# Plate197: everything the frame needs, baked in.
+#
+# Runs inside the chroot of a Raspberry Pi OS Lite arm64 image.
+set -x
+set -e
+export LC_ALL=C
+
+source /common.sh
+install_cleanup_trap
+
+unpack /filesystem/root /
+
+# The settings file a person can reach with no keyboard: it goes on the
+# FAT32 boot partition, which is /boot/firmware on Bookworm and later
+# and plain /boot before that.
+PLATE197_BOOTFS=/boot/firmware
+[ -d "${PLATE197_BOOTFS}" ] || PLATE197_BOOTFS=/boot
+unpack /filesystem/boot "${PLATE197_BOOTFS}"
+
+echo_green "\n### Plate197: packages"
+PACKAGES="python3-venv python3-pip python3-dev libportaudio2 curl sqlite3"
+if [ "${PLATE197_KIOSK}" == "yes" ]; then
+    # Pi OS Lite has no display stack at all. xinit with a single client
+    # is the lightest way onto the panel on a 1GB Pi 3 — a full desktop
+    # session would spend the memory Chromium needs.
+    PACKAGES="${PACKAGES} xserver-xorg xinit x11-xserver-utils chromium-browser"
+fi
+apt-get update
+# shellcheck disable=SC2086
+check_install_pkgs ${PACKAGES}
+
+echo_green "\n### Plate197: users"
+# The service never needs a login or a home it can write to beyond its
+# state directory.
+id -u earshot >/dev/null 2>&1 || useradd --system --home /var/lib/earshot --shell /usr/sbin/nologin earshot
+usermod -aG audio,video earshot
+if [ "${PLATE197_KIOSK}" == "yes" ]; then
+    id -u kiosk >/dev/null 2>&1 || useradd --create-home --shell /bin/bash kiosk
+    usermod -aG video,render,input,tty kiosk
+fi
+
+echo_green "\n### Plate197: code into /opt/earshot"
+mkdir -p /opt/earshot
+cp -r "${PLATE197_SOURCE}/." /opt/earshot/
+chmod +x /opt/earshot/deploy/*.sh
+# The repo carries some files mode 600. Copied in as root they stay 600,
+# and then earshot (which runs as its own user) cannot read the page it
+# is supposed to serve -- it silently fell back to the placeholder.
+# a+rX: readable for files, traversable for directories.
+chmod -R a+rX /opt/earshot
+
+echo_green "\n### Plate197: virtualenv"
+python3 -m venv /opt/earshot/venv
+PIP=/opt/earshot/venv/bin/pip
+
+# Every pip call here reaches the network, and on 64-bit Pi OS PyPI is the
+# only index that can supply them: piwheels carries armv6l/armv7l wheels
+# only, nothing for aarch64. PyPI's numpy index page is 2.3MB, the largest
+# single fetch in this build, and when one of these fetches comes back
+# empty pip reports "(from versions: none)" and set -e takes the whole
+# 40-minute build down with it. Retry before believing it.
+pip_install() {
+    local attempt
+    for attempt in 1 2 3; do
+        if "${PIP}" install --no-cache-dir "$@"; then
+            return 0
+        fi
+        echo_red "pip install $* failed (attempt ${attempt}/3)"
+        sleep 5
+    done
+    return 1
+}
+
+pip_install --upgrade pip wheel
+
+echo_green "\n### Plate197: tflite interpreter"
+# Resolved before earshot itself, and as one install rather than two.
+#
+# tflite-runtime 2.14.0's C extension is built against NumPy 1.x and will
+# not import under NumPy 2 at all: "_ARRAY_API not found", then
+# "numpy.core.multiarray failed to import", and no model ever loads.
+#
+# This used to install earshot first, which pulled NumPy 2.x (earshot's
+# own floor is only >=1.22), and then *downgraded* it with a separate
+# `pip install numpy<2`. That second resolution downloaded ~14MB it was
+# about to discard, and its failure was fatal. Asking for the interpreter
+# and the pin together resolves them in one pass, so NumPy 2 is never
+# fetched at all and earshot's numpy>=1.22 is already satisfied by the
+# time it is installed.
+#
+# ai-edge-litert is the same interpreter renamed: 14MB, wheels for newer
+# Pythons, and no opinion about NumPy. It is the fallback for *any*
+# failure above, not only a missing wheel -- an image carrying the larger
+# interpreter beats no image at all.
+if pip_install 'numpy<2' tflite-runtime; then
+    echo_green "interpreter: tflite-runtime (numpy pinned below 2)"
+else
+    echo_red "tflite-runtime + numpy<2 unavailable; falling back to ai-edge-litert"
+    pip_install ai-edge-litert
+fi
+
+pip_install /opt/earshot
+# backlight.py's own two.
+pip_install rpi-backlight astral
+# For `earshot plates --fix` -- not needed by the running service, but
+# handy to have baked in for anyone adding artwork straight on the Pi.
+pip_install pillow
+
+# Prove the interpreter actually imports, here, where the failure is a red
+# build rather than a frame that lights up and never identifies anything.
+# The NumPy 2 ABI break was invisible until the Pi tried to load a model.
+/opt/earshot/venv/bin/python - <<'PYCHECK'
+import sys
+import numpy
+
+found, errors = None, []
+for name in ("tflite_runtime.interpreter", "ai_edge_litert.interpreter"):
+    try:
+        __import__(name)
+        found = name
+        break
+    except Exception as exc:
+        errors.append(f"{name}: {exc.__class__.__name__}: {exc}")
+
+print(f"numpy {numpy.__version__}")
+if found:
+    print(f"interpreter {found} imports cleanly")
+else:
+    for line in errors:
+        print(line)
+    sys.exit("no working TFLite interpreter in the venv")
+PYCHECK
+
+echo_green "\n### Plate197: configuration"
+cat > /etc/earshot.toml <<TOML
+# Written by the Plate197 image build. Safe to edit; the service reads it
+# at startup and a systemd drop-in can override any single key with
+# EARSHOT_<KEY>.
+device_match = "${PLATE197_DEVICE_MATCH}"
+min_conf = ${PLATE197_MIN_CONF}
+latitude = ${PLATE197_LATITUDE}
+longitude = ${PLATE197_LONGITUDE}
+location = "${PLATE197_LOCATION}"
+model_precision = "${PLATE197_MODEL_PRECISION}"
+port = ${PLATE197_PORT}
+data_dir = "/var/lib/earshot"
+log_level = "WARNING"
+TOML
+
+mkdir -p /var/lib/earshot
+chown -R earshot:earshot /var/lib/earshot
+
+if [ -n "${PLATE197_WIFI_SSID}" ]; then
+    echo_green "\n### Plate197: baking in wifi for ${PLATE197_WIFI_SSID}"
+    if [ -z "${PLATE197_WIFI_COUNTRY}" ]; then
+        echo_red "   no PLATE197_WIFI_COUNTRY set -- the radio stays blocked"
+        echo_red "   without a regulatory domain and wlan0 will never come up"
+    fi
+    # TOML strings: backslashes first, then quotes, or the escaping eats
+    # its own tail.
+    esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+    {
+        echo ""
+        echo "# Written by the image build from PLATE197_WIFI_* -- edit freely,"
+        echo "# this file is read fresh on every boot."
+        echo "[wifi]"
+        echo "ssid = \"$(esc "${PLATE197_WIFI_SSID}")\""
+        echo "password = \"$(esc "${PLATE197_WIFI_PASSWORD}")\""
+        echo "country = \"$(esc "${PLATE197_WIFI_COUNTRY}")\""
+        [ "${PLATE197_WIFI_HIDDEN}" == "yes" ] && echo "hidden = true"
+    } >> "${PLATE197_BOOTFS}/plate197.toml"
+fi
+
+echo_green "\n### Plate197: timezone ${PLATE197_TIMEZONE}"
+# A frame that says 5:14pm at 11:14am is a broken frame, and the clock is
+# also what every "first today" answer is measured against.
+ln -sf "/usr/share/zoneinfo/${PLATE197_TIMEZONE}" /etc/localtime
+echo "${PLATE197_TIMEZONE}" > /etc/timezone
+
+if [ "${PLATE197_BAKE_MODELS}" == "yes" ]; then
+    echo_green "\n### Plate197: BirdNET v2.4 models (~120MB download, once)"
+    EARSHOT_DATA_DIR=/var/lib/earshot EARSHOT_MODEL_PRECISION="${PLATE197_MODEL_PRECISION}" \
+        /opt/earshot/venv/bin/python -m earshot models
+    chown -R earshot:earshot /var/lib/earshot
+fi
+
+echo_green "\n### Plate197: Spectral, kept on the card"
+# So the page never reaches for fonts.googleapis.com at runtime. A frame
+# with no network otherwise shows a white screen until DNS gives up.
+# Cosmetic if it fails: the page falls back to the system serif.
+EARSHOT_DATA_DIR=/var/lib/earshot /opt/earshot/venv/bin/python -c "
+import pathlib, sys
+sys.path.insert(0, '/opt/earshot')
+from earshot import fonts
+try:
+    n = fonts.fetch(pathlib.Path('/opt/earshot/fonts'))
+    print(f'  {n} font files')
+except Exception as exc:
+    print(f'  could not fetch Spectral ({exc}); the page will use the system serif')
+" || true
+chmod -R a+rX /opt/earshot/fonts 2>/dev/null || true
+
+echo_green "\n### Plate197: boot configuration"
+BOOT_CONFIG=/boot/firmware/config.txt
+[ -f "${BOOT_CONFIG}" ] || BOOT_CONFIG=/boot/config.txt
+if ! grep -q '^dtoverlay=rpi-backlight' "${BOOT_CONFIG}"; then
+    cat >> "${BOOT_CONFIG}" <<'BOOTCFG'
+
+# Plate 197
+# /sys/class/backlight is empty without this; vc4-kms-v3d does video and
+# touch on the official 7" panel but does not include the backlight.
+dtoverlay=rpi-backlight
+disable_splash=1
+BOOTCFG
+fi
+
+BOOT_CMDLINE=/boot/firmware/cmdline.txt
+[ -f "${BOOT_CMDLINE}" ] || BOOT_CMDLINE=/boot/cmdline.txt
+if ! grep -q 'consoleblank=0' "${BOOT_CMDLINE}"; then
+    # It is a picture frame. Nobody should ever see a kernel message, a
+    # blinking cursor, or the console going black ten minutes in.
+    sed -i '1 s/$/ consoleblank=0 quiet loglevel=3 logo.nologo vt.global_cursor_default=0/' "${BOOT_CMDLINE}"
+fi
+
+echo_green "\n### Plate197: units"
+cp /opt/earshot/deploy/earshot.service /etc/systemd/system/
+cp /opt/earshot/deploy/plate197-backlight.service /etc/systemd/system/
+systemctl_if_exists enable earshot.service
+systemctl_if_exists enable plate197-backlight.service
+
+# Writes what happened on each boot to the FAT32 boot partition, which is
+# the only way to see anything on a frame with no keyboard: pull the card,
+# put it in a laptop, read plate197-report.txt.
+cp /opt/earshot/deploy/plate197-report.service /etc/systemd/system/
+systemctl_if_exists enable plate197-report.service
+
+# Wi-Fi from that same boot-partition file, for when Imager's own
+# settings do not take and there is no keyboard to fix it with.
+cp /opt/earshot/deploy/plate197-wifi.service /etc/systemd/system/
+systemctl_if_exists enable plate197-wifi.service
+if [ "${PLATE197_KIOSK}" == "yes" ]; then
+    cp /opt/earshot/deploy/plate197-kiosk.service /etc/systemd/system/
+    systemctl_if_exists enable plate197-kiosk.service
+    # tty1's console login starts faster than the kiosk unit and wins
+    # the race for the tty otherwise, showing a login prompt instead of
+    # Chromium.
+    #
+    # mask, not disable. `disable` only removes symlinks under /etc, and
+    # getty@tty1 is commonly enabled from the vendor tree or conjured by
+    # a generator instead -- in which case disable silently removes
+    # nothing and the getty comes back anyway. That is exactly what the
+    # build log showed: `enable` printed "Created symlink", `disable`
+    # printed nothing at all. Masking points the unit at /dev/null and
+    # overrides every one of those paths.
+    systemctl_if_exists mask getty@tty1.service
+fi
+udevadm control --reload || true
+
+echo_green "\n### Plate197: done"

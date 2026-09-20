@@ -1,0 +1,23 @@
+[Unit]
+Description=Plate 197 panel brightness
+Documentation=https://github.com/kevinl95/Plate197
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/opt/earshot/venv/bin/python /opt/earshot/backlight.py
+Restart=always
+RestartSec=10
+SyslogIdentifier=plate197-backlight
+
+# Needs /sys/class/backlight, which the udev rule in backlight.py's
+# docstring makes writable. dtoverlay=rpi-backlight must be in
+# config.txt or that directory is empty — vc4-kms-v3d does not add it.
+User=earshot
+Group=earshot
+SupplementaryGroups=video
+NoNewPrivileges=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

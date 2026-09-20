@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=800, height=480, initial-scale=1, user-scalable=no">
+<title>The Window</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet">
+<style>
+  /* ---------------------------------------------------------------
+     THE WINDOW — 800x480, official Raspberry Pi 7" touch display
+     Dark ground because the panel is emissive: recency reads as
+     brightness, so the scene fills through the day and quiets back
+     down toward midnight, when the whole day's list resets and today
+     starts filling in again.
+     Panel brightness itself is handled by backlight.py.
+     --------------------------------------------------------------- */
+
+  :root {
+    --night:      #0E1A1D;
+    --night-deep: #060E10;
+    --plate:      #E9DDC1;
+    --ink:        #BCB49C;
+    --ink-quiet:  #5E6E6E;
+    --live:       #D14524;   /* epaulet red — notable arrivals only */
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0;
+      -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    width: 800px; height: 480px; overflow: hidden;
+    background: var(--night-deep);
+    font-family: Spectral, Georgia, serif;
+    color: var(--ink);
+    cursor: none;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+
+  #stage {
+    position: relative; width: 800px; height: 480px; overflow: hidden;
+    background: radial-gradient(ellipse 120% 92% at 50% 58%,
+                var(--night) 0%, var(--night-deep) 80%);
+  }
+
+  #horizon {
+    position: absolute; left: 0; right: 0; top: 69%; height: 1px;
+    background: linear-gradient(90deg, transparent,
+      rgba(233,221,193,.09) 30%, rgba(233,221,193,.12) 50%,
+      rgba(233,221,193,.09) 70%, transparent);
+  }
+
+  /* ---- birds ---- */
+  .bird {
+    position: absolute;
+    transform-origin: 50% 80%;
+    transition: opacity 2.4s ease, transform .4s cubic-bezier(.2,.8,.3,1);
+  }
+  /* min 62px touch target — a chickadee only draws at ~48px */
+  .bird::after {
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: max(100%, 62px); height: max(100%, 62px);
+    transform: translate(-50%, -50%);
+  }
+  .bird svg, .bird img { display: block; overflow: visible; pointer-events: none; }
+  .bird img.plate { width: 100%; height: auto; }
+  .bird .form { fill: var(--plate); transition: fill .4s ease; }
+
+  .bird.active { transform: translateY(-7px) scale(1.07); }
+  .bird.active .form { fill: #FFF6E2; }
+  /* A plate can't be recoloured the way a drawn form can, so the tap
+     reads as a lift in brightness instead. */
+  .bird.active img.plate { filter: brightness(1.12); }
+  .bird.active .label { opacity: 1; transform: translate(-50%, 0); }
+
+  .label {
+    position: absolute; left: 50%; top: 100%;
+    transform: translate(-50%, 6px);
+    opacity: 0; white-space: nowrap; text-align: center;
+    transition: opacity .3s ease, transform .3s ease;
+    pointer-events: none;
+  }
+  .label .common { display: block; font-size: 15px; color: #F3E9D2; }
+  .label .sci    { display: block; font-size: 12px; font-style: italic;
+                   font-weight: 300; color: var(--ink-quiet); }
+
+  /* Everything fades in. The red ping is reserved for a species that
+     is genuinely new — first ever, or first this year — so it means
+     something when it fires. An ordinary return arrives quietly. */
+  @keyframes arrive {
+    0%   { opacity: 0; transform: translateY(14px) scale(.94); }
+    100% { opacity: var(--target-op); transform: translateY(0) scale(1); }
+  }
+  .bird.arriving { animation: arrive 2.6s cubic-bezier(.2,.8,.3,1) both; }
+
+  .newdot {
+    position: absolute; left: 50%; top: -9px;
+    width: 6px; height: 6px; margin-left: -3px;
+    border-radius: 50%; background: var(--live); opacity: 0;
+  }
+  @keyframes ping {
+    0% { opacity: 0; transform: scale(.4); }
+    18% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(2.6); }
+  }
+  .bird.notable .newdot { animation: ping 2.4s ease-out .3s both; }
+
+  /* ---- footer ---- */
+  #footer {
+    position: absolute; left: 20px; right: 20px; bottom: 14px;
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 13px; font-weight: 300; color: var(--ink-quiet);
+  }
+  #footer .mid { color: var(--ink); }
+
+  /* ---- empty ---- */
+  #empty {
+    position: absolute; inset: 0; display: none;
+    flex-direction: column; align-items: center; justify-content: center; gap: 7px;
+  }
+  #empty.show { display: flex; }
+  #empty .l1 { font-size: 21px; font-weight: 300; color: var(--ink); }
+  #empty .l2 { font-size: 13px; font-weight: 300; color: var(--ink-quiet); }
+
+  /* ---- detail sheet ---- */
+  #scrim { position: absolute; inset: 0; display: none; }
+  #scrim.on { display: block; }
+
+  #detail {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 226px;
+    background: linear-gradient(180deg, rgba(6,14,16,0) 0%,
+                rgba(6,14,16,.94) 30%, rgba(6,14,16,1) 100%);
+    transform: translateY(100%);
+    transition: transform .34s cubic-bezier(.2,.8,.3,1);
+    padding: 0 26px 26px;
+    display: flex; flex-direction: column; justify-content: flex-end;
+  }
+  #detail.open { transform: translateY(0); }
+
+  /* Only appears when there's something worth saying. Most taps won't
+     have one, which is what makes it land when it does. */
+  #dBanner {
+    display: none;
+    align-self: flex-start;
+    margin-bottom: 11px;
+    padding: 5px 12px;
+    border: 1px solid rgba(209,69,36,.55);
+    border-radius: 2px;
+    font-size: 12px; letter-spacing: .07em; text-transform: uppercase;
+    color: #E8734F;
+  }
+  #dBanner.show { display: block; }
+
+  #dName { font-size: 30px; color: #F7EFDC; line-height: 1.12; }
+  #dSci  { font-size: 15px; font-style: italic; font-weight: 300;
+           color: var(--ink-quiet); margin-top: 3px; }
+  #dHeard { font-size: 15px; font-weight: 300; margin-top: 15px; }
+  #dHeard strong { font-weight: 400; color: #F3E9D2; }
+  #dDay { font-size: 13px; font-weight: 300; color: var(--ink-quiet);
+          margin-top: 6px; min-height: 17px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bird, #detail { transition: none; }
+    .bird.arriving { animation: none; opacity: var(--target-op); }
+    .bird.notable .newdot { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="horizon"></div>
+  <div id="flock"></div>
+
+  <div id="empty">
+    <div class="l1">Quiet at the feeder</div>
+    <div class="l2" id="emptySince"></div>
+  </div>
+
+  <div id="footer">
+    <div id="fLocation"></div>
+    <div class="mid" id="fCount"></div>
+    <div id="fClock"></div>
+  </div>
+
+  <div id="scrim"></div>
+  <div id="detail">
+    <div id="dBanner"></div>
+    <div id="dName"></div>
+    <div id="dSci"></div>
+    <div id="dHeard"></div>
+    <div id="dDay"></div>
+  </div>
+</div>
+
+<script>
+const CONFIG = {
+  API          : null,          // e.g. 'http://localhost:8000' — null = mock data
+  POLL_MS      : 60000,
+  // Fade-to-floor time, in hours. Not a cutoff — see latestBySpecies(),
+  // which drops a species at local midnight regardless of this number.
+  // 24 means a bird from just after midnight is at its dimmest by the
+  // following midnight, right before the day resets; a bird from any
+  // later in the day never gets that dim before the reset removes it.
+  DECAY_HOURS  : 24,
+  MIN_CONF     : 0.65,
+  // How wide a House Finch is drawn, and how strongly mass changes that.
+  // The old 58px was calibrated for the drawn silhouettes, which were
+  // pure bird edge to edge. An Audubon plate spends much of its frame on
+  // branch and foliage, so the same number left a finch about 25px of
+  // actual bird — legible as a smudge and nothing more.
+  // The gentler exponent (1/4 rather than 1/3) keeps a dove obviously
+  // bigger than a chickadee without letting a magpie take the room of
+  // three small birds.
+  BIRD_PX      : 95,
+  BIRD_MASS_EXP: 0.25,
+  // Checked visually up to all 15 species at once (see the species
+  // table below) — the two heaviest overlap a little at the sizes mass
+  // gives them, same as they always have at any count, but nothing
+  // else crowds. Revisit the same way if the roster grows much past
+  // that: render place()+draw() headless and look at the result.
+  MAX_ON_SCREEN: 12,
+  LOCATION     : 'Colorado'    // the server substitutes the configured one
+};
+
+const SPECIES = {
+  'Mourning Dove':          { sci:'Zenaida macroura',      mass_g:120,
+    shape:{bodyRx:30,bodyRy:21,headR:12,headX:30,headY:-16,bill:9, billH:4,tailLen:52,tailW:13,tailDrop:16}},
+  'Northern Flicker':       { sci:'Colaptes auratus',      mass_g:130,
+    shape:{bodyRx:29,bodyRy:20,headR:13,headX:28,headY:-18,bill:17,billH:4,tailLen:40,tailW:15,tailDrop:12}},
+  'Red-winged Blackbird':   { sci:'Agelaius phoeniceus',   mass_g:52,
+    shape:{bodyRx:26,bodyRy:16,headR:11,headX:25,headY:-14,bill:14,billH:4,tailLen:34,tailW:14,tailDrop:8}},
+  'House Finch':            { sci:'Haemorhous mexicanus',  mass_g:21,
+    shape:{bodyRx:21,bodyRy:16,headR:11,headX:19,headY:-12,bill:7, billH:7,tailLen:26,tailW:11,tailDrop:6}},
+  'Dark-eyed Junco':        { sci:'Junco hyemalis',        mass_g:19,
+    shape:{bodyRx:20,bodyRy:15,headR:11,headX:18,headY:-12,bill:6, billH:5,tailLen:25,tailW:11,tailDrop:5}},
+  'American Goldfinch':     { sci:'Spinus tristis',        mass_g:13,
+    shape:{bodyRx:18,bodyRy:14,headR:10,headX:16,headY:-11,bill:6, billH:6,tailLen:20,tailW:10,tailDrop:4}},
+  'Black-capped Chickadee': { sci:'Poecile atricapillus',  mass_g:11,
+    shape:{bodyRx:16,bodyRy:14,headR:11,headX:14,headY:-11,bill:5, billH:4,tailLen:22,tailW:9, tailDrop:4}},
+  'White-breasted Nuthatch':{ sci:'Sitta carolinensis',    mass_g:21,
+    shape:{bodyRx:20,bodyRy:14,headR:10,headX:19,headY:-9, bill:12,billH:3,tailLen:14,tailW:10,tailDrop:3}},
+
+  /* Birds waiting on their plate. No `shape`, so they stay off the
+     scene until plates/<name>.png exists; mass_g only decides how big
+     they are drawn when it does. Typical adult masses — the number is
+     a size, not a measurement. Add a line here as each plate is cut. */
+  'Cedar Waxwing':          { sci:'Bombycilla cedrorum',   mass_g:32  },
+  'Pine Siskin':            { sci:'Spinus pinus',          mass_g:15  },
+  'Common Grackle':         { sci:'Quiscalus quiscula',    mass_g:115 },
+  'Red-breasted Nuthatch':  { sci:'Sitta canadensis',      mass_g:10  },
+  'Black-billed Magpie':    { sci:'Pica hudsonia',         mass_g:175 },
+  'Lesser Goldfinch':       { sci:'Spinus psaltria',       mass_g:10  },
+  'Spotted Towhee':         { sci:'Pipilo maculatus',      mass_g:40  }
+};
+
+/* ------------------------------------------------------------------
+   ARTWORK
+
+   The plate is Audubon's, the filename is BirdNET's, and the server
+   matches the two however either is spelled — so the page asks for a
+   bird by name and never needs to know what the file is called.
+
+   A species draws if it has a picture or a drawn shape. Mass alone is
+   not enough: a magpie-sized finch silhouette labelled "Black-billed
+   Magpie" would be a worse answer than nothing.
+   ------------------------------------------------------------------ */
+let PLATES = new Set();
+
+function plateKey(n){
+  // Same reduction the server does, so a name and a filename agree:
+  // "Black-capped Chickadee" and black_capped_chickadee.png both
+  // become blackcappedchickadee.
+  return n.toLowerCase().normalize('NFKD')
+          .replace(/\.(png|webp|jpe?g|gif|svg)$/,'')
+          .replace(/[^a-z0-9]+/g,'');
+}
+function hasPlate(n){ return PLATES.has(plateKey(n)); }
+function massFor(n){ const s=SPECIES[n]; return (s&&s.mass_g)||21; }
+// Layout and drawing both need this; when they each had their own copy
+// they could disagree about how much room a bird takes.
+function sizeFor(n){
+  return CONFIG.BIRD_PX*Math.pow(massFor(n)/21,CONFIG.BIRD_MASS_EXP);
+}
+function sciFor(d){ const s=SPECIES[d.species]; return (s&&s.sci)||d.sci||''; }
+function drawable(n){ const s=SPECIES[n]; return !!(s&&s.shape)||hasPlate(n); }
+
+async function loadPlates(){
+  if(!CONFIG.API) return;                 // opened as a file: silhouettes
+  try{
+    const r=await fetch(CONFIG.API+'/plates',{cache:'no-store'});
+    if(r.ok) PLATES=new Set((await r.json()).species||[]);
+  }catch(e){ /* keep whatever we knew; art does not vanish on a hiccup */ }
+}
+
+function hash(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return((h>>>0)%10000)/10000;}
+
+/* The scene's actual reset boundary. A calendar day, not a rolling
+   window — a bird from 11:58pm is gone two minutes later, same as one
+   from 6am is still there at 11pm. This is also why /recent asks the
+   server for a generous 25 hours: whatever the time now, "since
+   midnight" is at most ~24h of that, and the server can't know which
+   24 without knowing the page's clock. */
+function startOfToday(){
+  const d=new Date(); d.setHours(0,0,0,0); return d.getTime();
+}
+
+/* ------------------------------------------------------------------
+   EXPECTED API SHAPE
+
+   GET /recent -> [ { species, time, conf,
+                      first_ever, first_this_year,
+                      count_today, first_today }, ... ]
+
+   The history flags come from your detections table. Keep these
+   server-side — cheap queries, and far better than shipping the whole
+   table to the browser:
+
+     first_ever       SELECT COUNT(*)=0 FROM detections
+                      WHERE species=? AND ts < date('now','localtime')
+
+     first_this_year  SELECT COUNT(*)=0 FROM detections
+                      WHERE species=? AND ts >= date('now','start of year')
+                        AND ts < date('now','localtime')
+
+     count_today      SELECT COUNT(*), MIN(ts) FROM detections
+                      WHERE species=? AND ts >= date('now','localtime')
+
+   Both "first" flags must EXCLUDE today, or every bird is a first
+   every morning. Index on (species, ts).
+   ------------------------------------------------------------------ */
+
+function mockDetections(){
+  const n=Date.now(), m=x=>new Date(n-x*60000).toISOString();
+  const dawn=new Date(); dawn.setHours(6,42,0,0);
+  return [
+    {species:'House Finch',             time:m(3),   conf:.94, count_today:37, first_today:dawn.toISOString()},
+    {species:'Mourning Dove',           time:m(11),  conf:.89, count_today:9,  first_today:m(300)},
+    {species:'Black-capped Chickadee',  time:m(28),  conf:.81, count_today:4,  first_today:m(120)},
+    {species:'Red-winged Blackbird',    time:m(64),  conf:.91, count_today:2,  first_today:m(70),  first_this_year:true},
+    {species:'White-breasted Nuthatch', time:m(96),  conf:.79, count_today:1,  first_today:m(96),  first_ever:true},
+    {species:'Dark-eyed Junco',         time:m(112), conf:.76, count_today:6,  first_today:m(260)},
+    {species:'American Goldfinch',      time:m(187), conf:.83, count_today:3,  first_today:m(210)}
+  ];
+}
+
+function normalize(raw){
+  if(!Array.isArray(raw)) raw = raw.detections || raw.data || [];
+  return raw.map(d=>({
+    species: d.species || d.commonName || d.common_name,
+    sci:     d.sci     || d.scientific  || d.scientific_name || '',
+    time:    d.time    || d.timestamp  || d.ts,
+    conf:    typeof d.conf==='number' ? d.conf
+             : (typeof d.confidence==='number' ? d.confidence : parseFloat(d.confidence||0)),
+    first_ever:      !!(d.first_ever      || d.firstEver),
+    first_this_year: !!(d.first_this_year || d.firstThisYear),
+    count_today:     d.count_today || d.countToday || 0,
+    first_today:     d.first_today || d.firstToday || null
+  })).filter(d=>d.species&&d.time);
+}
+
+async function loadDetections(){
+  if(!CONFIG.API) return mockDetections();
+  try{
+    const r=await fetch(CONFIG.API+'/recent',{cache:'no-store'});
+    if(!r.ok) throw new Error(r.status);
+    return normalize(await r.json());
+  }catch(e){ console.warn('detector unreachable:',e); return null; }
+}
+
+function latestBySpecies(dets){
+  const cutoff=startOfToday(), out=new Map();
+  for(const d of dets){
+    if(d.conf<CONFIG.MIN_CONF||!drawable(d.species)) continue;
+    const t=new Date(d.time).getTime();
+    if(isNaN(t)||t<cutoff) continue;
+    const c=out.get(d.species);
+    if(!c||t>c.t) out.set(d.species,{...d, t});
+  }
+  return [...out.values()].sort((a,b)=>b.t-a.t).slice(0,CONFIG.MAX_ON_SCREEN);
+}
+
+function place(birds){
+  const sorted=[...birds].sort((a,b)=>massFor(b.species)-massFor(a.species));
+  const n=sorted.length;
+
+  /* Walk outward from the middle, alternating sides, advancing by each
+     bird's own width. The old version advanced by *index*, which gave
+     the heaviest birds the smallest offsets — and the heaviest birds are
+     also the widest, so a busy morning piled the biggest plates on top
+     of each other in the centre. Spacing by width is the whole fix.
+
+     Heaviest still lands centre and lowest: that mass ordering is the
+     scene's sense of depth, and it is worth keeping. */
+  const GAP = 2;                              // % of stage between birds
+  const wPct = b => sizeFor(b.species)/8;     // 800px stage -> percent
+  let left = 50, right = 50;
+  const spots = sorted.map((b,i)=>{
+    const w = wPct(b);
+    let cx;
+    if(i===0){ cx = 50; left = 50-w/2; right = 50+w/2; }
+    else if(i%2===1){ cx = left-GAP-w/2; left = cx-w/2; }
+    else { cx = right+GAP+w/2; right = cx+w/2; }
+    return {b, cx, w};
+  });
+
+  /* On a full day that walk runs wider than the panel. Rather than clamp
+     — which would stack everything against the edges — squeeze the whole
+     arrangement toward the middle, so a bird still gets room in
+     proportion to its size, just less of it. */
+  const usable = 76;                          // 12%..88%
+  const span = Math.max(right-left, 0.01);
+  const squeeze = span > usable ? usable/span : 1;
+  // Alternating sides with unequal widths drifts off centre, so put the
+  // middle of what was actually laid out back in the middle.
+  const middle = (left+right)/2;
+
+  return spots.map(({b, cx, w}, i)=>{
+    const r1=hash(b.species), r2=hash(b.species+'~y');
+    const rank=n>1?i/(n-1):0;
+    const x=50+(cx-middle)*squeeze+(r1-.5)*4;
+    /* Where this bird's feet go, as a percentage down the stage. The
+       horizon is at 69%, and the heaviest birds perch just below it
+       while the lightest sit higher and further back -- the scene's
+       sense of depth.
+
+       Feet, not head: the element is anchored by its bottom edge, so a
+       plate grows upward into empty sky whatever its aspect ratio is.
+       Anchoring the top meant a portrait plate like the dove grew
+       downward through the footer, and every attempt to dodge that by
+       raising the whole band just left the bottom third empty. */
+    const y=74-rank*17+(r2-.5)*5;
+    return {...b,xPct:Math.max(12,Math.min(88,x)),
+                 yPct:Math.max(52,Math.min(78,y)), flip:r1>.55};
+  });
+}
+
+function opacityFor(t){
+  const age=(Date.now()-t)/(CONFIG.DECAY_HOURS*3600e3);
+  return Math.max(.18,1-Math.pow(Math.min(age,1),.75)*.82);
+}
+
+function ago(t){
+  const m=Math.round((Date.now()-t)/60000);
+  if(m<1) return 'just now';
+  if(m===1) return 'a minute ago';
+  if(m<60) return m+' minutes ago';
+  const h=Math.round(m/60);
+  return h===1?'an hour ago':h+' hours ago';
+}
+
+function clockTime(iso){
+  const d=new Date(iso); if(isNaN(d)) return null;
+  let h=d.getHours(); const ap=h<12?'am':'pm'; h=h%12||12;
+  return h+':'+String(d.getMinutes()).padStart(2,'0')+ap;
+}
+
+/* The drawn silhouettes. Still here, and still the fallback: a plate
+   that is missing or fails to load degrades to a shape rather than to a
+   broken-image icon, so artwork can be added one bird at a time without
+   the frame ever looking wrong in between. */
+function renderBird(name,px){
+  const s=(SPECIES[name]&&SPECIES[name].shape)||SPECIES['House Finch'].shape,
+        W=190,H=150,cx=92,cy=84;
+  const hx=cx+s.headX, hy=cy+s.headY;
+  return `<svg width="${px}" height="${px*H/W}" viewBox="0 0 ${W} ${H}"><g class="form">
+    <polygon points="${cx-s.bodyRx*.5},${cy-4} ${cx-s.bodyRx*.5-s.tailLen},${cy+s.tailDrop} ${cx-s.bodyRx*.5-s.tailLen+6},${cy+s.tailDrop+s.tailW} ${cx-s.bodyRx*.5},${cy+10}"/>
+    <ellipse cx="${cx}" cy="${cy}" rx="${s.bodyRx}" ry="${s.bodyRy}" transform="rotate(-8 ${cx} ${cy})"/>
+    <circle cx="${hx}" cy="${hy}" r="${s.headR}"/>
+    <polygon points="${hx+s.headR-2},${hy-s.billH/2} ${hx+s.headR+s.bill},${hy+1} ${hx+s.headR-2},${hy+s.billH/2}"/>
+    <rect x="${cx-2}" y="${cy+s.bodyRy-3}" width="2.4" height="13"/>
+    <rect x="${cx+8}" y="${cy+s.bodyRy-4}" width="2.4" height="13"/>
+  </g></svg>`;
+}
+
+/* Ask for the bird by name; the server knows which file that is. */
+function renderArt(name,px){
+  if(!hasPlate(name)) return renderBird(name,px);
+  return `<img class="plate" alt=""`+
+         ` src="${CONFIG.API||''}/plates/${encodeURIComponent(name)}">`;
+}
+
+const flock=document.getElementById('flock'),
+      detail=document.getElementById('detail'),
+      scrim=document.getElementById('scrim');
+let current=[], activeIdx=-1, open=false, seen=new Set(), lastGood=[];
+
+function draw(birds){
+  const placed=place(birds);
+  flock.innerHTML='';
+  placed.forEach((b,i)=>{
+    const size=sizeFor(b.species);
+    const op=opacityFor(b.t);
+    const fresh=!seen.has(b.species);
+    const notable=b.first_ever||b.first_this_year;
+
+    const el=document.createElement('div');
+    el.className='bird'+(fresh?' arriving':'')+(fresh&&notable?' notable':'');
+    el.style.setProperty('--target-op',op);
+    el.style.opacity=op;
+    // bottom, not top: yPct is where the feet are.
+    el.style.left=b.xPct+'%'; el.style.bottom=(100-b.yPct)+'%';
+    el.style.width=size+'px'; el.style.marginLeft=(-size/2)+'px';
+    el.innerHTML=`<div class="newdot"></div>`+
+      // Mirroring gave the drawn silhouettes some variety, since they
+      // are all the same shape. An Audubon plate is not symmetrical --
+      // flipping one reverses its lighting and composition and simply
+      // looks wrong -- so only the fallback silhouettes are ever flipped.
+      `<div class="art" style="transform:scaleX(${(!hasPlate(b.species)&&b.flip)?-1:1})">`+
+      `${renderArt(b.species,size)}</div>`+
+      `<div class="label"><span class="common">${b.species}</span>`+
+      `<span class="sci">${sciFor(b)}</span></div>`;
+    // A plate that 404s or arrives corrupt falls back to the silhouette.
+    const img=el.querySelector('img.plate');
+    if(img) img.onerror=()=>{ img.parentNode.innerHTML=renderBird(b.species,size); };
+    el.addEventListener('pointerdown',ev=>{ ev.stopPropagation(); tapBird(i); });
+    flock.appendChild(el);
+    seen.add(b.species);
+  });
+  current=placed;
+  document.getElementById('empty').classList.toggle('show',placed.length===0);
+  document.getElementById('fCount').textContent = placed.length===0 ? '' :
+    placed.length===1 ? 'one species today' : placed.length+' species today';
+}
+
+function tapBird(i){
+  activeIdx=i;
+  [...flock.children].forEach((el,k)=>el.classList.toggle('active',k===i));
+  const b=current[i]; if(!b) return;
+
+  const banner=document.getElementById('dBanner');
+  if(b.first_ever){
+    banner.textContent='First time at your feeder';
+    banner.classList.add('show');
+  }else if(b.first_this_year){
+    banner.textContent='First this year';
+    banner.classList.add('show');
+  }else{
+    banner.classList.remove('show');
+  }
+
+  document.getElementById('dName').textContent=b.species;
+  document.getElementById('dSci').textContent=sciFor(b);
+  document.getElementById('dHeard').innerHTML='Heard <strong>'+ago(b.t)+'</strong>';
+
+  const t0=b.first_today?clockTime(b.first_today):null;
+  const n=b.count_today||0;
+  let day='';
+  if(n>1 && t0)       day=n+' times today, first at '+t0;
+  else if(n===1&&t0)  day='Once today, at '+t0;
+  else if(t0)         day='First heard at '+t0;
+  document.getElementById('dDay').textContent=day;
+
+  open=true; detail.classList.add('open'); scrim.classList.add('on');
+}
+
+function close(){
+  open=false; detail.classList.remove('open'); scrim.classList.remove('on');
+  [...flock.children].forEach(el=>el.classList.remove('active'));
+}
+scrim.addEventListener('pointerdown',close);
+
+function tickClock(){
+  const d=new Date(); let h=d.getHours(); const ap=h<12?'am':'pm';
+  h=h%12||12;
+  document.getElementById('fClock').textContent=h+':'+String(d.getMinutes()).padStart(2,'0')+ap;
+}
+
+async function refresh(){
+  await loadPlates();          // a plate added today appears within a minute
+  const raw=await loadDetections();
+  if(raw!==null) lastGood=latestBySpecies(raw);
+  if(!open) draw(lastGood);          // never redraw under a finger
+  document.getElementById('emptySince').textContent='Nothing heard yet today';
+}
+
+// Reset `seen` just after midnight so a new day's firsts can animate.
+function midnightReset(){
+  const now=new Date(), next=new Date(now);
+  next.setHours(24,0,30,0);
+  setTimeout(()=>{ seen.clear(); refresh(); midnightReset(); }, next-now);
+}
+
+document.getElementById('fLocation').textContent=CONFIG.LOCATION;
+tickClock(); refresh(); midnightReset();
+setInterval(tickClock,20000);
+setInterval(refresh,CONFIG.POLL_MS);
+setInterval(()=>{ if(!open) draw(lastGood); },300000);
+</script>
+</body>
+</html>

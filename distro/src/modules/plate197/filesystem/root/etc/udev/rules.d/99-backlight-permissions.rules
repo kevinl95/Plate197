@@ -1,0 +1,4 @@
+# The panel's brightness is written by backlight.py, which does not run as
+# root. Needs dtoverlay=rpi-backlight in config.txt or this directory is
+# empty: vc4-kms-v3d brings up video and touch but not the backlight.
+SUBSYSTEM=="backlight",RUN+="/bin/chmod 666 /sys/class/backlight/%k/brightness /sys/class/backlight/%k/bl_power"
