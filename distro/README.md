@@ -31,7 +31,7 @@ sudo dnf install qemu-user-static-aarch64 kpartx parted \
 
 Check the registration took. This is the failure that looks like a
 broken module rather than a missing package: an unregistered binfmt
-surfaces twenty minutes in as `Exec format error` from somewhere deep
+shows up twenty minutes in as `Exec format error` from somewhere deep
 inside the chroot.
 
 ```sh
@@ -47,7 +47,7 @@ arm64, so there is nothing to emulate.
 PNGs in there first and they are on the card when it boots. They are
 gitignored deliberately, because the Audubon scans are not ours to
 redistribute. That also means a fresh `git clone` has none, and an image
-built from one draws the fallback silhouettes instead. See
+built from one draws the silhouettes instead. See
 "Artwork" in the top-level README for naming.
 
 Everything configurable is an environment variable:
@@ -58,7 +58,7 @@ Everything configurable is an environment variable:
 | `PLATE197_LOCATION` | `Colorado` | The place name printed in the page's footer. |
 | `PLATE197_TIMEZONE` | `America/Denver` | Also what every "first today" is measured against. |
 | `PLATE197_DEVICE_MATCH` | `USB` | Substring of the microphone's name. |
-| `PLATE197_MIN_CONF` | `0.65` | Confidence floor for writing a detection down. |
+| `PLATE197_MIN_CONF` | `0.65` | Minimum confidence for writing a detection down. |
 | `PLATE197_MODEL_PRECISION` | `fp32` | `fp32` (52MB, reference), `fp16` (26MB), `int8` (41MB, quicker). |
 | `PLATE197_BAKE_MODELS` | `yes` | Put the models in the image so first boot needs no network. |
 | `PLATE197_KIOSK` | `yes` | `no` builds the service without X or Chromium. |
@@ -344,7 +344,7 @@ Pi.
 
 The pin and the interpreter are asked for in the same `pip install`,
 before `earshot` itself. That ordering matters. Installing `earshot`
-first pulled NumPy 2.x, since its own floor is only `>=1.22`, and the
+first pulled NumPy 2.x, since it only requires `>=1.22`, and the
 pin then had to *downgrade* it in a second, separate resolution. That
 fetched about 14MB it immediately discarded, and added a network round
 trip whose failure was fatal to a 40-minute build. On 64-bit Pi OS, PyPI
