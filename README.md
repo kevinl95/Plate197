@@ -1,24 +1,50 @@
 # Plate 197
 
-A bird frame. A Raspberry Pi listens at a window by a feeder, identifies
+A bird frame where a Raspberry Pi listens at a window by a feeder, identifies
 birds by sound with BirdNET, and draws the ones heard recently on a 7"
-touchscreen. Tap a bird for its name and when it was there.
+touchscreen. Tap a bird for its name, how many observations there have been today, and when it was there.
 
 *Plate 197* is the Audubon plate number for the house finch, the most
-common bird at this feeder.
+common bird at my feeder and my personal favorite bird.
 
-Everything runs on the Pi. Nothing is sent anywhere.
+This repo lets you build an image for a Raspberry Pi 3 or newer.
 
 ```
-earshot/          the service: capture -> classify -> SQLite -> HTTP
-index-7inch.html  the display, 800x480, native touch
-backlight.py      panel brightness on a dawn/dusk schedule
-deploy/           systemd units, kiosk launcher, installer
-distro/           CustomPiOS build for a ready-to-write image
-tests/            the parts that are easy to get quietly wrong
-```
+
+## Hardware
+
+- Raspberry Pi 3 or newer, which is also where 64-bit Raspberry Pi OS
+  starts. 1GB is enough; everything runs on the Pi.
+- Official Raspberry Pi 7" touchscreen, 800x480 over DSI.
+- A USB microphone, anything that will do 48kHz mono. This one is a
+  lapel mic.
+- A microSD card, 8GB or larger.
+- A power supply with headroom. Undervoltage is the most common cause of
+  trouble here; see "Things that will happen" below.
+
+This build is housed in a SmartiPi Touch 2, which holds the Pi behind
+the official display. Raspberry Pi OS Lite 64-bit is the target.
 
 ## Install
+
+Start from Raspberry Pi OS Lite, 64-bit. The 64-bit part is not
+optional: every Python wheel this installs is aarch64. Write it with
+[Raspberry Pi Imager](https://www.raspberrypi.com/software/), which is
+also where the OS itself comes from: pick *Raspberry Pi OS (other)*, then
+*Raspberry Pi OS Lite (64-bit)*.
+
+Lite has no desktop, which is what you want here; this project installs
+its own display stack. Set your user, Wi-Fi and SSH in Imager's OS
+Customisation (the gear icon, or Ctrl+Shift+X) before writing the card,
+because a frame has nowhere to plug a keyboard.
+
+Bookworm and Trixie both work. Bookworm gives Python 3.11 and the 2.3MB
+`tflite-runtime`; Trixie gives Python 3.13, which has no arm64 wheel for
+that, so it falls back to the 14MB `ai-edge-litert`. On a 1GB Pi 3 the
+smaller one is worth having. [distro/README.md](distro/README.md) has
+the detail.
+
+Then, over SSH or on the Pi itself:
 
 ```sh
 git clone https://github.com/kevinl95/Plate197.git
@@ -99,7 +125,7 @@ The committed coordinates point at central Denver and the footer says
 Real ones go in `/etc/earshot.toml` on the Pi, or `earshot.toml` beside
 the code, both gitignored. For a built image, `distro/src/config.local`.
 Twenty miles off costs almost nothing: the range model returns 97.7% the
-same species across the year. Wrong continent is what breaks it.
+same species across the year.
 
 ## Things that will happen
 
@@ -172,8 +198,9 @@ sized:
 | a plate that 404s | the silhouette, via `onerror` |
 | only a mass, or no entry at all | nothing, until its plate exists |
 
-That last row is deliberate: a magpie-sized finch silhouette labelled
-"Black-billed Magpie" is worse than an absence. The bird is still
+A magpie-sized finch silhouette labelled "Black-billed Magpie" would be
+worse than drawing nothing, which is why the last row draws nothing at
+all. The bird is still
 recorded the whole time, so adding its plate a year later gives a "first
 ever" that is already correct.
 
@@ -183,6 +210,17 @@ out of the display.
 
 The plate list is re-read on every poll, so a picture dropped into
 `plates/` appears within a minute. No restart.
+
+## Thanks
+
+Inspired by [fugleramme](https://github.com/arnegiacomo/fugleramme) by
+Arne Giacomo, a Raspberry Pi bird frame that identifies birds by sound
+and shows them as hand-cut 1800s illustrations, entirely locally.
+Norwegian for "bird frame".
+
+Fugleramme is e-ink: a 13.3" Inky Impression on a Pi 5, classifying with
+BirdNET-Go. Plate 197 is the same idea on cheaper parts, with a 7" DSI
+touchscreen on a Pi 3, BirdNET's TFLite model directly, and Audubon.
 
 ## Licence
 

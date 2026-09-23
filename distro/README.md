@@ -150,33 +150,19 @@ tidiness and distribution, not something the Pi cares about.
 
 ## Wi-Fi, via Raspberry Pi Imager
 
-Before writing the image, Imager's gear icon (or Ctrl+Shift+X) opens
-"OS Customisation", whose Wi-Fi tab has one job: it connects the Pi to
-a network you already have, using the SSID and password you type in
-there. It does not put the Pi into access-point mode or have it create a
-network of its own. Nothing in this image or in Imager does that.
+Imager's gear icon (Ctrl+Shift+X) opens OS Customisation. Its Wi-Fi tab
+joins the Pi to a network you already have. It does not create one, and
+nothing here puts the Pi into access-point mode.
 
-This works the same way whether you picked the image from Imager's own
-catalog or with "Use custom" pointed at this build. Imager writes the
-same customisation payload to the boot partition either way, regardless
-of where the `.img` came from. What can vary is whether the
-*image being flashed* still has the machinery to read that payload on
-first boot, and ours does: we build from an unmodified official
-Raspberry Pi OS image and only add software inside the chroot, never
-touching `raspberrypi-sys-mods` or NetworkManager, which is what
-applies it. Bookworm dropped the old `wpa_supplicant.conf`-in-boot-
-partition trick in favour of NetworkManager plus a `custom.toml` file
-Imager drops in `/boot/firmware/`; nothing under `distro/` interferes
-with that path.
+It behaves the same with "Use custom" as with Imager's own catalog:
+Imager writes a `custom.toml` to the boot partition and NetworkManager
+applies it on first boot. This image is built from stock Raspberry Pi OS
+and leaves that path alone.
 
-If you want to be certain rather than take this on faith, which is
-reasonable for a device you're about to seal into a frame, pull the SD
-card's boot partition back out on your computer right after Imager finishes
-and before first boot, and check for `custom.toml` (or, on older
-Imager versions, `firstrun.sh` plus a modified `cmdline.txt`) sitting
-there. If it's present, the Pi will apply it on its own; if you don't
-see it, the Wi-Fi tab's settings didn't get written and it's worth
-re-running Imager rather than finding out at boot.
+To check before sealing up the frame, remount the card's boot partition
+after Imager finishes and look for `custom.toml` (older Imager versions
+write `firstrun.sh` instead). If it isn't there, the Wi-Fi settings
+didn't get written and it's worth re-running Imager.
 
 ## When the panel comes up wrong and there is no keyboard
 
@@ -185,7 +171,7 @@ partition is FAT32, so the way to read it is to power the Pi down, pull
 the SD card, and put it in any laptop. It sits at the top level of the
 one partition that machine will mount, and needs no Linux to read.
 
-It opens with the short version:
+It starts with a summary:
 
 ```
 ===== THE ONE-LINE ANSWER =====
@@ -225,14 +211,14 @@ fatal, so the frame still starts.
 This is the only way to change behaviour on an assembled frame with no
 keyboard and no SSH, short of building and flashing again.
 
-`min_conf` is the one worth knowing about while testing. 0.65 is
+`min_conf` is the one that matters while testing. 0.65 is
 deliberately strict for a feeder a few feet from the microphone; a call
 played from a phone speaker across a room routinely scores well under
 it, and nothing below the threshold is written down at all.
 
 ## What the network is still for
 
-Almost nothing, and that is deliberate. The BirdNET models, the Audubon
+Almost nothing. The BirdNET models, the Audubon
 plates, the typeface and the page are all on the card; everything the
 frame draws is served from localhost. Unplug the router and it keeps
 listening, detecting and displaying.
@@ -255,17 +241,15 @@ been synchronised, so a wrong one is visible rather than silent.
 
 ## Wi-Fi when Imager's settings do not take
 
-Two ways in, and they end up in the same place.
+Before the build, put the SSID and password in `distro/src/config.local`
+(gitignored) as shown above. The build writes them into `plate197.toml`
+on the boot partition, and the card joins the network the first time it
+is powered on with nothing to edit.
 
-Before the build, put it in `distro/src/config.local` (gitignored) as
-shown above. The build writes it into `plate197.toml` on the boot
-partition and the card joins the network the first time it is powered
-on, with nothing to edit.
-
-One thing to be aware of: a password baked in this way travels inside
-the `.img`. That is fine for a card you are building for yourself, and
-not fine for an image you intend to hand to anyone else. For that,
-leave the SSID empty and let the recipient fill it in.
+A password baked in this way travels inside the `.img`. That is fine for
+a card you are building for yourself, and not fine for an image you hand
+to anyone else; for that, leave the SSID empty and let the recipient
+fill it in.
 
 After the build, edit the same `plate197.toml` on the boot partition
 from any laptop:
@@ -354,7 +338,7 @@ index page, the largest single fetch in the build, comes back empty, pip
 says `(from versions: none)` and `set -e` ends the build. Each pip call
 now retries three times before believing that, and any failure of the
 tflite-runtime branch falls through to `ai-edge-litert` rather than
-aborting. An image carrying the larger interpreter beats no image.
+aborting.
 
 The build then imports the interpreter and fails if it cannot, so this
 whole class of problem is a red build rather than a frame that lights up
@@ -386,7 +370,7 @@ something re-enables the getty later. If you ever want the console back:
 - `/etc/earshot.toml`, written at build time from the variables above
 - three units: `earshot`, `plate197-backlight`, `plate197-kiosk`
 - `dtoverlay=rpi-backlight` in config.txt, and a quiet console: no kernel
-  messages, no cursor, no blanking. It is a picture frame.
+  messages, no cursor, no blanking.
 
 ## Licensing note
 
