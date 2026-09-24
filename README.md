@@ -9,7 +9,6 @@ common bird at my feeder and my personal favorite bird.
 
 This repo lets you build an image for a Raspberry Pi 3 or newer or install the software on Raspberry Pi OS yourself.
 
-Plate 197's namesake is an Audubon plate featuring a house finch like the ones that visit my bird feeder. They're my favorite!
 
 ## Hardware
 
