@@ -4,6 +4,8 @@ A bird frame where a Raspberry Pi listens at a window by a feeder, identifies
 birds by sound with [BirdNET](https://birdnet.cornell.edu/), and draws the ones heard recently on a 7"
 touchscreen. Tap a bird for its name, how many observations there have been today, and when it was there.
 
+![The frame on a side table, showing five Audubon birds on a dark screen, with "Colorado", "5 species today" and the time along the bottom edge](https://hackster.imgix.net/uploads/attachments/2005220/_70KPk8D2Ct.blob?auto=compress%2Cformat&w=900&h=675&fit=min)
+
 *Plate 197* is the Audubon plate number for the house finch, the most
 common bird at my feeder and my personal favorite bird.
 
