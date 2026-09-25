@@ -29,10 +29,25 @@ def by_species(rows):
     return {r["species"]: r for r in rows}
 
 
+def today_at(now, floor_s=1, **offset):
+    """`now` minus an offset, but never earlier than today's midnight.
+
+    count_today, first_today and first_this_year are all measured against
+    SQL's date('now','localtime'). A CI runner in UTC that starts a job at
+    00:30 puts "three hours ago" on yesterday, so count_today is correctly
+    1 and the assertion fails for a reason that has nothing to do with the
+    code. Clamping keeps each row on today's date whatever the hour; the
+    floor is per-row so two clamped rows still sort in the right order.
+    """
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return max(now - dt.timedelta(**offset),
+               midnight + dt.timedelta(seconds=floor_s))
+
+
 def test_first_ever_ignores_today(store):
     now = dt.datetime.now()
-    insert(store, "House Finch", "Haemorhous mexicanus", now - dt.timedelta(minutes=5))
-    insert(store, "House Finch", "Haemorhous mexicanus", now - dt.timedelta(minutes=2))
+    insert(store, "House Finch", "Haemorhous mexicanus", today_at(now, 1, minutes=5))
+    insert(store, "House Finch", "Haemorhous mexicanus", today_at(now, 2, minutes=2))
     row = by_species(store.recent(6))["House Finch"]
     assert row["first_ever"] is True, "heard only today: still a first"
     assert row["first_this_year"] is True
@@ -52,7 +67,7 @@ def test_last_year_is_first_this_year_but_not_first_ever(store):
     now = dt.datetime.now()
     last_year = now.replace(year=now.year - 1, month=6, day=1)
     insert(store, "Red-winged Blackbird", "Agelaius phoeniceus", last_year)
-    insert(store, "Red-winged Blackbird", "Agelaius phoeniceus", now - dt.timedelta(minutes=9))
+    insert(store, "Red-winged Blackbird", "Agelaius phoeniceus", today_at(now, 1, minutes=9))
     row = by_species(store.recent(6))["Red-winged Blackbird"]
     assert row["first_ever"] is False
     assert row["first_this_year"] is True
@@ -68,8 +83,8 @@ def test_recent_window_excludes_older(store):
 
 def test_one_row_per_species_with_the_latest_time(store):
     now = dt.datetime.now()
-    insert(store, "Dark-eyed Junco", "Junco hyemalis", now - dt.timedelta(hours=3), conf=0.7)
-    insert(store, "Dark-eyed Junco", "Junco hyemalis", now - dt.timedelta(minutes=4), conf=0.88)
+    insert(store, "Dark-eyed Junco", "Junco hyemalis", today_at(now, 1, hours=3), conf=0.7)
+    insert(store, "Dark-eyed Junco", "Junco hyemalis", today_at(now, 2, minutes=4), conf=0.88)
     insert(store, "American Goldfinch", "Spinus tristis", now - dt.timedelta(minutes=30))
     rows = store.recent(6)
     assert [r["species"] for r in rows] == ["Dark-eyed Junco", "American Goldfinch"]
